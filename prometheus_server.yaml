@@ -1,0 +1,97 @@
+---
+ - name: Install Prometheus
+   hosts: server 
+   remote_user: sqc # replace me
+   become: true
+   vars:
+    prometheus_user: "prometheus"
+    scrape_interval: 5
+    evaluation_interval: 15
+    job_name: "nodes"
+    prometheus_version: "2.53.0"
+    kernel: "linux"
+    scraping_port: 9100
+    prometheus_listen_address: "0.0.0.0:9090"
+    metrics_path: "/metricas"
+    config_prometheus: "/prometheus/"
+    prometheus_folder: "/prometheus/"
+    prometheus_data: "data"
+    scrape_hosts: "{{ groups['all'] }}"
+    path_service_and_socket: "/etc/systemd/system/"
+    url_prometheus: "https://github.com/prometheus/prometheus/releases/download/v{{prometheus_version}}/prometheus-{{prometheus_version}}.{{kernel}}-amd64.tar.gz"
+    prometheus_tarball: "prometheus-{{prometheus_version}}.{{kernel}}-amd64.tar.gz"
+   tasks:
+     - name: Create User for Prometheus
+       ansible.builtin.user:
+        state: present
+        name: "{{prometheus_user}}"
+        shell: /sbin/nologin
+     - name: Create Config Folder
+       ansible.builtin.file:
+         path: "{{config_prometheus}}"
+         state: directory
+         owner: "{{prometheus_user}}"
+         group: "{{prometheus_user}}"
+         mode: "u=rwx,g=rwx,o=r"
+     - name: Creating prometheus folder 
+       ansible.builtin.file:
+         path: "{{prometheus_folder}}"
+         state: directory
+         owner: "{{prometheus_user}}"
+         group: "{{prometheus_user}}"
+         mode: "u=rwx,g=rwx,o=r"
+     - name: Creating prometheus data folder 
+       ansible.builtin.file:
+         path: "{{prometheus_folder}}{{prometheus_data}}"
+         state: directory
+         owner: "{{prometheus_user}}"
+         group: "{{prometheus_user}}"
+         mode: "u=rwx,g=rwx,o=r"
+     - name: Downloading Prometheus
+       ansible.builtin.get_url:
+         dest: "/tmp"
+         url: "{{url_prometheus}}"
+     - name: Extracting Binary to prometheus Folder
+       ansible.builtin.unarchive:
+         dest: "{{prometheus_folder}}"
+         owner: "{{prometheus_user}}"
+         group: "{{prometheus_user}}"
+         remote_src: yes
+         extra_opts: [--strip-components=1]
+         src: "/tmp/{{prometheus_tarball}}"
+         mode: "u=rwx,g=rwx,o=r"
+     - name: Creating Prometheus Config 
+       ansible.builtin.copy:
+         src: "{{prometheus_folder}}/prometheus.yml" 
+         remote_src: yes          
+         dest: "{{config_prometheus}}/prometheus.yml"
+         owner: "{{prometheus_user}}"
+         group: "{{prometheus_user}}"
+         mode: "u=rwx,g=rwx,o=r"
+     - name: Creating Service Unit 
+       ansible.builtin.copy:
+        content: |
+          [Unit]
+          Description=Prometheus
+          [Service]
+          User={{prometheus_user}}
+          ExecStart={{prometheus_folder}}prometheus --config.file="{{config_prometheus}}prometheus.yml" --web.listen-address="{{prometheus_listen_address}}" --storage.tsdb.path="{{prometheus_folder}}{{prometheus_data}}/"
+          [Install]
+          WantedBy=multi-user.target
+        dest: "{{path_service_and_socket}}prometheus.service"
+     - name: Configuring Prometheus to scrape all hosts listed in the inventory
+       ansible.builtin.template:
+        src: templates/prometheus.yml.j2
+        dest: "{{config_prometheus}}prometheus.yml"
+     - name: Staring Prometheus Service
+       ansible.builtin.systemd:
+        state: restarted
+        daemon_reload: true
+        name: prometheus
+
+         
+        
+
+
+
+ 

@@ -1,0 +1,78 @@
+---
+ - name: Install Node Exporter in Linux Servers
+   hosts: scrape 
+   remote_user: sqc # replace me 
+   become: true
+   vars:
+    node_exporter_user: "node_exporter"
+    node_exporter_version: "1.8.1"
+    prometheus_version: ""
+    path_service_and_socket: "/etc/systemd/system/"
+    kernel: "linux"
+    path_config_node_exporter: "/etc/sysconfig/"
+    url_node_exporter: "https://github.com/prometheus/node_exporter/releases/download/v{{node_exporter_version}}/node_exporter-{{node_exporter_version}}.{{kernel}}-amd64.tar.gz"
+    node_exporter_tarball: "node_exporter-{{node_exporter_version}}.{{kernel}}-amd64.tar.gz"
+    textfile_collector_directory: "/var/lib/node_exporter/textfile_collector"
+    scraping_port: 9100
+    metrics_path: "/metricas"
+   tasks:
+     - name: Creating User for node_exporter
+       ansible.builtin.user:
+        state: present
+        name: "{{node_exporter_user}}"
+        shell: /sbin/nologin
+     - name: Creating textfile Collector Directory
+       ansible.builtin.file:
+         path: "{{textfile_collector_directory}}"
+         state: directory
+     - name: Creating Config Folder
+       ansible.builtin.file:
+         path: "{{path_config_node_exporter}}{{node_exporter_user}}"
+         state: directory
+     - name: Downloading Node-Exporter
+       ansible.builtin.get_url:
+         dest: "/tmp"
+         url: "{{url_node_exporter}}"
+     - name: Extracting Binary to "/usr/sbin"
+       ansible.builtin.unarchive:
+         dest: "/usr/sbin"
+         remote_src: yes
+         src: "/tmp/{{node_exporter_tarball}}"
+         extra_opts: ['--strip-components=1']
+     - name: Creating Service Unit 
+       ansible.builtin.copy:
+        content: |
+          [Unit]
+          Description=Node Exporter
+          Requires={{node_exporter_user}}.socket
+          [Service]
+          User={{node_exporter_user}}
+          EnvironmentFile={{path_config_node_exporter}}{{node_exporter_user}}/sysconfig.{{node_exporter_user}}
+          ExecStart=/usr/sbin/{{node_exporter_user}} --web.systemd-socket $OPTIONS
+          [Install]
+          WantedBy=multi-user.target
+        dest: "{{path_service_and_socket}}{{node_exporter_user}}.service"
+     - name: Creating Socket 
+       ansible.builtin.copy:
+        content: |
+          [Unit]
+          Description=Node Exporter
+          [Socket]
+          ListenStream={{scraping_port}}
+          [Install]
+          WantedBy=sockets.target
+        dest: /etc/systemd/system/{{node_exporter_user}}.socket
+     - name: Creating sysconfig File
+       ansible.builtin.copy:
+        content: OPTIONS="--collector.textfile.directory {{textfile_collector_directory}} --web.telemetry-path {{metrics_path}}"
+        dest: "{{path_config_node_exporter}}{{node_exporter_user}}/sysconfig.{{node_exporter_user}}"
+     - name: Restarting daemon and start Node Exporter socket
+       ansible.builtin.systemd:
+        daemon_reload: true
+        name: "{{node_exporter_user}}.socket"
+        state: started
+     - name:  Starting Node Exporter service
+       ansible.builtin.systemd:
+        name: "{{node_exporter_user}}.service"
+        state: started
+ 
